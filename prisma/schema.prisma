@@ -1,0 +1,160 @@
+//prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://neondb_owner:npg_ajJ7HXfx9Ehl@ep-patient-meadow-ac7d901m-pooler.sa-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+  // url      = env("DATABASE_URL")
+}
+
+// --- Modelos de NextAuth.js ---
+
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verificationtokens")
+}
+
+// --- Nuestros modelos personalizados con NextAuth.js y la lógica de negocio ---
+// Enums útiles (simples y prácticos)
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE     // licencia
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+  INTERN
+}
+
+enum WorkMode {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+// MODELO USER (extendido como “empleado”)
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  image         String?            // (NextAuth) avatar de usuario (puede ser el laboral también)
+  password      String             // credenciales
+
+  // Relación con la empresa (multi-tenant)
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Relación con el rol (autorización)
+  roleId String
+  role   Role      @relation(fields: [roleId], references: [id])
+
+  // NextAuth
+  accounts Account[]
+  sessions Session[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // --------- Datos de empleado (nuevos) ---------
+  position        String?                // Puesto
+  department      String?                // Área / Departamento (libre)
+  phone           String?                // Tel. laboral o personal
+  workEmail       String?                // Si querés diferenciar del login (opcional)
+  workMode        WorkMode?              // REMOTE / HYBRID / ONSITE
+  locationCity    String?                // Ciudad
+  locationCountry String?                // País
+  managerId       String?                // Jefe directo
+  manager         User?      @relation("UserManager", fields: [managerId], references: [id])
+  reports         User[]     @relation("UserManager") // subordinados
+
+  startDate       DateTime?             // fecha de ingreso
+  endDate         DateTime?             // baja (si aplica)
+  status          EmploymentStatus @default(ACTIVE)
+  employmentType  EmploymentType?       // full/part/contractor/intern
+
+  salary          Decimal?    @db.Decimal(12,2) // precisión contable
+  tags            String[]                     // etiquetas libres (p.ej. "frontend","guardia")
+  notes           String?      @db.Text        // observaciones internas (no mostrar en sesión pública)
+
+  documentId      String?                     // DNI/ID interno (opcional)
+  birthday        DateTime?                   // fecha de nacimiento (para aniversarios)
+  // Si preferís evitar datos sensibles, podés omitir birthday/documentId
+
+  // --------- Índices pensados para filtros y lazy load ---------
+  @@index([companyId, name])
+  @@index([companyId, email])
+  @@index([companyId, phone])
+  @@index([companyId, status])
+  @@index([companyId, createdAt, id])     // útil para paginación por cursor estable
+  @@unique([companyId, documentId])       // único por empresa (si usás documentId)
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  permissions String[] // Array de strings para almacenar permisos, ej: ["view_dashboard", "manage_employees"]
+  description String?
+  users       User[] // Relación con usuarios
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("roles")
+}
+
+model Company {
+  id           String   @id @default(uuid()) // UUID para IDs únicos
+  companyName  String   @unique
+  numEmployees Int
+  contactEmail String   @unique
+  contactName  String
+  phone        String? // Opcional
+  users        User[]
+  active       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("companies") // Opcional: define el nombre de la tabla en la DB
+}
