@@ -28,6 +28,11 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/employees",
         requiredPerm: PERMISSIONS.USERS_MANAGE,
       },
+      {
+        label: "Ver equipos",
+        href: "/team",
+        requiredPerm: PERMISSIONS.TEAM_VIEW,
+      },
     ],
   },
   {

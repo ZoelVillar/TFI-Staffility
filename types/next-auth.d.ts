@@ -18,15 +18,24 @@ declare module "next-auth" {
   interface User {
     id: string;
     companyId?: string | null;
-    role?: { id: string; name: string; permissions: string[] } | null;
+    managerId?: string | null;
+    role?: {
+      id: string;
+      name: string; // <- NECESARIO para hasRole
+      permissions: string[]; // <- NECESARIO para hasPermission/Any/All
+    } | null;
   }
+
   interface Session {
     user: DefaultSession["user"] & {
       id: string;
       companyId?: string | null;
-      roleId?: string | null;
-      role?: SessionRole | null;
-      company?: SessionCompany | null;
+      managerId?: string | null;
+      role?: {
+        id: string;
+        name: string;
+        permissions: string[];
+      } | null;
     };
   }
 }

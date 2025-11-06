@@ -21,6 +21,9 @@ export const PERMISSIONS = {
 
   BURNOUT_VIEW: "BURNOUT_VIEW",
   BURNOUT_MANAGE: "BURNOUT_MANAGE",
+
+  TEAM_VIEW: "TEAM_VIEW",
+  TEAM_MANAGE: "TEAM_MANAGE",
   // agrega aquí todo lo que vaya apareciendo
 } as const;
 

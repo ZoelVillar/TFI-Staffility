@@ -22,7 +22,7 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Contraseña", type: "password" },
       },
       async authorize(credentials) {
-        // Validación server-side (Zod)
+        // 1) Validación server-side (Zod)
         const parsed = loginSchema.safeParse({
           email: credentials?.email,
           password: credentials?.password,
@@ -33,33 +33,36 @@ export const authOptions: NextAuthOptions = {
             400
           );
         }
-
         const { email, password } = parsed.data;
 
-        // Buscamos usuario + relaciones
+        // 2) Buscar usuario (con lo mínimo para validar)
         const user = await prisma.user.findUnique({
           where: { email },
-          include: { company: true, role: true },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            image: true,
+            password: true,
+          },
         });
 
         if (!user || !user.password) {
           throw new PublicError("Email o contraseña incorrectos", 401);
         }
 
+        // 3) Verificar password
         const isValid = await bcrypt.compare(password, user.password);
         if (!isValid) {
           throw new PublicError("Email o contraseña incorrectos", 401);
         }
 
+        // 4) Devolver shape mínimo; el resto se carga en session() desde DB
         return {
           id: user.id,
-          name: user.name ?? null,
           email: user.email,
+          name: user.name ?? null,
           image: user.image ?? null,
-          companyId: user.companyId ?? null,
-          roleId: user.roleId ?? null,
-          role: user.role ?? null,
-          company: user.company ?? null,
         };
       },
     }),
@@ -81,39 +84,57 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    /**
+     * Guardamos solo el identificador del usuario en el token.
+     * Toda la metadata (companyId, managerId, role.*) se obtiene en session()
+     * para evitar datos stale y JWTs gigantes.
+     */
+    async jwt({ token, user }) {
       if (user) {
-        token.id = user.id as string;
-        token.companyId = (user as any).companyId ?? null;
-        token.roleId = (user as any).roleId ?? null;
-        token.role = (user as any).role ?? null;
-        token.company = (user as any).company ?? null;
-      }
-      if (trigger === "update" && session?.name) {
-        const fresh = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          include: { role: true, company: true },
-        });
-        if (fresh) {
-          token.name = fresh.name ?? null;
-          token.email = fresh.email;
-          token.companyId = fresh.companyId ?? null;
-          token.roleId = fresh.roleId ?? null;
-          token.role = fresh.role ?? null;
-          token.company = fresh.company ?? null;
-        }
+        token.uid = (user as any).id; // <- clave: ID del usuario
       }
       return token;
     },
 
+    /**
+     * Ensamblamos la sesión consultando la DB con SELECT explícito
+     * (no exponemos campos sensibles como salary, notes, documentId, etc.).
+     */
     async session({ session, token }) {
-      if (session.user) {
-        session.user.id = (token.id as string) ?? "";
-        session.user.companyId = (token.companyId as string) ?? null;
-        session.user.roleId = (token.roleId as string) ?? null;
-        session.user.role = token.role ?? null;
-        session.user.company = token.company ?? null;
+      const uid = token.uid as string | undefined;
+      if (!uid) return session;
+
+      const dbUser = await prisma.user.findUnique({
+        where: { id: uid },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+          companyId: true,
+          managerId: true,
+          role: { select: { id: true, name: true, permissions: true } },
+        },
+      });
+
+      if (dbUser && session.user) {
+        session.user.id = dbUser.id;
+        session.user.name = dbUser.name ?? session.user.name ?? null;
+        session.user.email = dbUser.email ?? session.user.email!;
+        session.user.image = dbUser.image ?? session.user.image ?? null;
+
+        // Campos que usa tu app para scoping/roles/equipo:
+        (session.user as any).companyId = dbUser.companyId ?? null;
+        (session.user as any).managerId = dbUser.managerId ?? null;
+        (session.user as any).role = dbUser.role
+          ? {
+              id: dbUser.role.id,
+              name: dbUser.role.name,
+              permissions: dbUser.role.permissions,
+            }
+          : null;
       }
+
       return session;
     },
   },

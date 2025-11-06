@@ -1,257 +1,476 @@
 // prisma/seed.ts
-import {
-  PrismaClient,
-  EmploymentStatus,
-  EmploymentType,
-  WorkMode,
-} from "../lib/generated/prisma";
+import { PrismaClient } from "../lib/generated/prisma";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-// IDs de roles provistos
-const EMPLOYEE_ROLE_ID = "cmhmliwuw0004tn6oite7nd3t"; // Empleado
-const ADMIN_ROLE_ID = "cmhmliwqh0000tn6o1uh47805"; // Administrador
+/** ======== CONFIG ======== */
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@staffility.io";
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "Admin123!";
+const EMPLOYEE_PASSWORD = process.env.SEED_EMP_PASSWORD ?? "Empleado123!";
 
-// Config empresa demo
-const COMPANY_NAME = process.env.SEED_COMPANY_NAME || "Acme Labs SA";
-const CONTACT_NAME = process.env.SEED_CONTACT_NAME || "María Acme";
-const CONTACT_EMAIL =
-  process.env.SEED_CONTACT_EMAIL || "contacto@acmelabs.example";
-const COMPANY_PHONE = process.env.SEED_COMPANY_PHONE || "+54 11 5555-0000";
+const SYSTEM_COMPANY_NAME =
+  process.env.SEED_SYSTEM_COMPANY_NAME ?? "Staffility (System)";
 
-// Passwords demo (cámbialos luego)
-const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@acmelabs.example";
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "Admin123!";
-const EMP_PASSWORD = process.env.SEED_EMP_PASSWORD || "Empleado123!";
+// Catálogo de permisos (tu lista)
+const PERMISSIONS = {
+  SYSTEM_COMPANIES_VIEW: "SYSTEM_COMPANIES_VIEW",
+  SYSTEM_COMPANIES_MANAGE: "SYSTEM_COMPANIES_MANAGE",
+  SYSTEM_ROLES_MANAGE: "SYSTEM_ROLES_MANAGE",
 
-function pick<T>(arr: T[]) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
+  USERS_VIEW: "USERS_VIEW",
+  USERS_MANAGE: "USERS_MANAGE",
+  ROLES_VIEW: "ROLES_VIEW",
+  ROLES_MANAGE: "ROLES_MANAGE",
 
-async function ensureCompany() {
-  const company = await prisma.company.upsert({
-    where: { companyName: COMPANY_NAME },
-    create: {
-      companyName: COMPANY_NAME,
-      numEmployees: 11, // 10 empleados + 1 admin
-      contactEmail: CONTACT_EMAIL,
-      contactName: CONTACT_NAME,
-      phone: COMPANY_PHONE,
-      active: true,
-    },
-    update: {
-      contactEmail: CONTACT_EMAIL,
-      contactName: CONTACT_NAME,
-      phone: COMPANY_PHONE,
-      active: true,
-    },
-  });
-  console.log(`🏢 Empresa OK: ${company.companyName}`);
-  return company;
-}
+  DASHBOARD_VIEW: "DASHBOARD_VIEW",
+  DASHBOARD_MANAGE: "DASHBOARD_MANAGE",
 
-async function ensureRoleById(roleId: string) {
-  const role = await prisma.role.findUnique({ where: { id: roleId } });
-  if (!role)
-    throw new Error(
-      `No existe Role con id=${roleId}. Verifica tus roles seed.`
-    );
-  return role;
-}
+  COMPANIES_VIEW: "COMPANIES_VIEW",
+  COMPANIES_MANAGE: "COMPANIES_MANAGE",
 
-async function createOrUpdateAdmin(companyId: string) {
-  const adminHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  BURNOUT_VIEW: "BURNOUT_VIEW",
+  BURNOUT_MANAGE: "BURNOUT_MANAGE",
 
-  // Aseguramos que el rol administrador exista
-  await ensureRoleById(ADMIN_ROLE_ID);
+  TEAM_VIEW: "TEAM_VIEW",
+  TEAM_MANAGE: "TEAM_MANAGE",
+} as const;
 
-  const admin = await prisma.user.upsert({
-    where: { email: ADMIN_EMAIL },
-    create: {
-      email: ADMIN_EMAIL,
-      name: "Admin Acme",
-      password: adminHash,
-      image: null,
-      companyId,
-      roleId: ADMIN_ROLE_ID,
+// Definición de roles (idempotente via upsert)
+const ROLES: Record<string, { description?: string; permissions: string[] }> = {
+  SystemAdmin: {
+    description: "Gestión global de la plataforma",
+    permissions: [
+      PERMISSIONS.SYSTEM_COMPANIES_VIEW,
+      PERMISSIONS.SYSTEM_COMPANIES_MANAGE,
+      PERMISSIONS.SYSTEM_ROLES_MANAGE,
 
-      // Datos de empleado del admin
-      position: "Administrador",
-      department: "Dirección",
-      phone: "+54 11 5555-0001",
-      workEmail: ADMIN_EMAIL,
-      workMode: WorkMode.HYBRID,
-      locationCity: "Buenos Aires",
-      locationCountry: "Argentina",
-      startDate: new Date("2023-01-10"),
-      status: EmploymentStatus.ACTIVE,
-      employmentType: EmploymentType.FULL_TIME,
-      salary: "1500000.00",
-      tags: ["admin", "management"],
-      notes: "Usuario administrador de la compañía demo.",
-      documentId: "ACME-ADM-0001",
-      birthday: new Date("1990-05-15"),
-    },
-    update: {
-      roleId: ADMIN_ROLE_ID,
-      companyId,
-      position: "Administrador",
-      department: "Dirección",
-      status: EmploymentStatus.ACTIVE,
-    },
-    select: { id: true, email: true, name: true },
-  });
+      PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.USERS_VIEW,
+      PERMISSIONS.ROLES_VIEW,
+      PERMISSIONS.TEAM_VIEW,
+      PERMISSIONS.COMPANIES_VIEW,
+      PERMISSIONS.BURNOUT_VIEW,
+      // puede o no tener los *_MANAGE de negocio; lo dejamos sólo con system manage
+    ],
+  },
+  Administrador: {
+    description: "Admin del tenant: gestión completa de la empresa",
+    permissions: [
+      PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.DASHBOARD_MANAGE,
+      PERMISSIONS.USERS_VIEW,
+      PERMISSIONS.USERS_MANAGE,
+      PERMISSIONS.ROLES_VIEW,
+      PERMISSIONS.ROLES_MANAGE,
+      PERMISSIONS.TEAM_VIEW,
+      PERMISSIONS.TEAM_MANAGE,
+      PERMISSIONS.COMPANIES_VIEW,
+      PERMISSIONS.COMPANIES_MANAGE,
+      PERMISSIONS.BURNOUT_VIEW,
+      PERMISSIONS.BURNOUT_MANAGE,
+    ],
+  },
+  Manager: {
+    description: "Gestión de equipo y personas",
+    permissions: [
+      PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.USERS_VIEW,
+      PERMISSIONS.USERS_MANAGE,
+      PERMISSIONS.TEAM_VIEW,
+      PERMISSIONS.TEAM_MANAGE,
+      PERMISSIONS.BURNOUT_VIEW,
+    ],
+  },
+  Analista: {
+    description: "Lectura de datos y métricas",
+    permissions: [
+      PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.USERS_VIEW,
+      PERMISSIONS.TEAM_VIEW,
+      PERMISSIONS.BURNOUT_VIEW,
+    ],
+  },
+  Empleado: {
+    description: "Usuario final",
+    permissions: [PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.TEAM_VIEW],
+  },
+};
 
-  console.log(`🛡️  Admin OK: ${admin.email}`);
-  return admin;
-}
+/** ======== HELPERS ======== */
 
-async function createEmployees(companyId: string, managerId: string) {
-  // Aseguramos que el rol empleado exista
-  await ensureRoleById(EMPLOYEE_ROLE_ID);
-
-  const empHash = await bcrypt.hash(EMP_PASSWORD, 10);
-  const firstNames = [
-    "Juan",
-    "Ana",
-    "Luis",
-    "Carla",
-    "Sofía",
-    "Pedro",
-    "Lucía",
-    "Martín",
-    "Valentina",
-    "Nicolás",
-    "Agustina",
-    "Mauro",
-  ];
-  const lastNames = [
-    "Pérez",
-    "Gómez",
-    "Rodríguez",
-    "Fernández",
-    "Sánchez",
-    "López",
-    "Martínez",
-    "Díaz",
-    "Acosta",
-    "Torres",
-    "Silva",
-    "Romero",
-  ];
-  const positions = [
-    "Dev Frontend",
-    "Dev Backend",
-    "QA Analyst",
-    "UX Designer",
-    "Data Analyst",
-    "DevOps",
-    "Soporte",
-    "Scrum Master",
-    "Product Analyst",
-    "HR Analyst",
-  ];
-  const departments = [
-    "IT",
-    "Producto",
-    "Calidad",
-    "Datos",
-    "Operaciones",
-    "Soporte",
-    "RRHH",
-    "UX/UI",
-  ];
-  const workModes = [WorkMode.REMOTE, WorkMode.HYBRID, WorkMode.ONSITE];
-  const countries = ["Argentina", "Chile", "Uruguay"];
-  const cities = ["Buenos Aires", "Córdoba", "Rosario", "Mendoza", "La Plata"];
-
-  // Crea 10 empleados determinísticos por email para idempotencia
-  for (let i = 1; i <= 10; i++) {
-    const fn = pick(firstNames);
-    const ln = pick(lastNames);
-    const name = `${fn} ${ln}`;
-    const email = `empleado${i}@acmelabs.example`;
-    const workEmail = `empleado${i}@acme.local`;
-    const phone = `+54 11 5555-00${(10 + i).toString().slice(-2)}`;
-    const position = positions[(i - 1) % positions.length];
-    const department = departments[(i - 1) % departments.length];
-    const status =
-      i % 8 === 0 ? EmploymentStatus.ON_LEAVE : EmploymentStatus.ACTIVE;
-    const employmentType = [
-      EmploymentType.FULL_TIME,
-      EmploymentType.PART_TIME,
-      EmploymentType.CONTRACTOR,
-      EmploymentType.INTERN,
-    ][i % 4];
-    const workMode = workModes[i % workModes.length];
-    const city = cities[i % cities.length];
-    const country = countries[i % countries.length];
-    const salary = (500000 + i * 25000).toFixed(2); // string para Decimal
-    const docId = `ACME-EMP-${String(i).padStart(4, "0")}`;
-    const birthday = new Date(1990 + (i % 10), i % 12, (i % 28) + 1);
-    const startDate = new Date(2024, i % 12, (i % 28) + 1);
-
-    await prisma.user.upsert({
-      where: { email },
+async function upsertRoles() {
+  for (const [name, def] of Object.entries(ROLES)) {
+    await prisma.role.upsert({
+      where: { name },
       create: {
-        email,
         name,
-        password: empHash,
-        image: null,
-        companyId,
-        roleId: EMPLOYEE_ROLE_ID,
-
-        position,
-        department,
-        phone,
-        workEmail,
-        workMode,
-        locationCity: city,
-        locationCountry: country,
-        managerId,
-        startDate,
-        status,
-        employmentType,
-        salary,
-        tags: ["demo", department.toLowerCase()],
-        notes: `Empleado demo #${i} - generado por seed`,
-        documentId: docId,
-        birthday,
+        description: def.description ?? null,
+        permissions: def.permissions,
       },
       update: {
-        roleId: EMPLOYEE_ROLE_ID,
-        companyId,
-        position,
-        department,
-        phone,
-        workEmail,
-        workMode,
-        locationCity: city,
-        locationCountry: country,
-        managerId,
-        status,
-        employmentType,
-        salary,
-        documentId: docId,
+        description: def.description ?? null,
+        permissions: def.permissions,
       },
     });
   }
-
-  console.log("👥  10 empleados OK (rol Empleado)");
+  console.log("✅ Roles sincronizados");
 }
 
+async function ensureSystemCompany() {
+  const company = await prisma.company.upsert({
+    where: { companyName: SYSTEM_COMPANY_NAME },
+    create: {
+      companyName: SYSTEM_COMPANY_NAME,
+      numEmployees: 0,
+      contactEmail: "system@staffility.local",
+      contactName: "System",
+      phone: null,
+      active: true,
+    },
+    update: {},
+  });
+  console.log(`✅ Empresa de sistema: ${company.companyName}`);
+  return company;
+}
+
+async function ensureSystemAdmin(systemCompanyId: string) {
+  const sysRole = await prisma.role.findUnique({
+    where: { name: "SystemAdmin" },
+  });
+  if (!sysRole) throw new Error("Falta rol SystemAdmin");
+
+  const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+
+  const user = await prisma.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    create: {
+      email: ADMIN_EMAIL,
+      name: "System Admin",
+      image: null,
+      password: hash,
+      companyId: systemCompanyId,
+      roleId: sysRole.id,
+      status: "ACTIVE",
+      employmentType: "FULL_TIME",
+      workMode: "REMOTE",
+      position: "Platform Admin",
+      department: "Platform",
+    },
+    update: {
+      companyId: systemCompanyId,
+      roleId: sysRole.id,
+    },
+  });
+
+  console.log(`✅ System Admin: ${user.email}`);
+  return user;
+}
+
+type NewUserInput = {
+  email: string;
+  name: string;
+  roleName: string;
+  position?: string | null;
+  department?: string | null;
+  seniority?: "JR" | "SSR" | "SR" | null;
+  workMode?: "ONSITE" | "HYBRID" | "REMOTE" | null;
+  status?: "ACTIVE" | "INACTIVE" | "ON_LEAVE";
+  managerEmail?: string | null; // para setear managerId después
+};
+
+async function createCompanyWithPeople(input: {
+  companyName: string;
+  contactEmail: string;
+  contactName: string;
+  phone?: string | null;
+  active?: boolean;
+  users: NewUserInput[];
+  teams: Array<{
+    name: string;
+    description?: string | null;
+    leadEmail?: string | null;
+    members: Array<{ email: string; roleInTeam?: "LEAD" | "MEMBER" }>;
+  }>;
+}) {
+  const company = await prisma.company.upsert({
+    where: { companyName: input.companyName },
+    create: {
+      companyName: input.companyName,
+      numEmployees: input.users.length,
+      contactEmail: input.contactEmail,
+      contactName: input.contactName,
+      phone: input.phone ?? null,
+      active: input.active ?? true,
+    },
+    update: {
+      numEmployees: input.users.length,
+      contactEmail: input.contactEmail,
+      contactName: input.contactName,
+      phone: input.phone ?? null,
+      active: input.active ?? true,
+    },
+  });
+
+  // cache roles
+  const roles = await prisma.role.findMany();
+  const roleByName = new Map(roles.map((r) => [r.name, r]));
+
+  // 1) Crear/actualizar usuarios (sin managerId todavía)
+  const createdUsers: Record<string, string> = {}; // email -> id
+  for (const u of input.users) {
+    const role = roleByName.get(u.roleName);
+    if (!role) throw new Error(`Rol inexistente: ${u.roleName}`);
+
+    const hash = await bcrypt.hash(EMPLOYEE_PASSWORD, 10);
+    const user = await prisma.user.upsert({
+      where: { email: u.email },
+      create: {
+        email: u.email,
+        name: u.name,
+        image: null,
+        password: hash,
+        companyId: company.id,
+        roleId: role.id,
+        position: u.position ?? null,
+        department: u.department ?? null,
+        seniority: (u.seniority as any) ?? null,
+        workMode: (u.workMode as any) ?? "HYBRID",
+        status: (u.status as any) ?? "ACTIVE",
+        employmentType: "FULL_TIME",
+      },
+      update: {
+        companyId: company.id,
+        roleId: role.id,
+        position: u.position ?? null,
+        department: u.department ?? null,
+        seniority: (u.seniority as any) ?? null,
+        workMode: (u.workMode as any) ?? "HYBRID",
+        status: (u.status as any) ?? "ACTIVE",
+        employmentType: "FULL_TIME",
+      },
+    });
+    createdUsers[u.email] = user.id;
+  }
+
+  // 2) Setear managerId según managerEmail
+  for (const u of input.users) {
+    if (!u.managerEmail) continue;
+    const meId = createdUsers[u.email];
+    const mgrId = createdUsers[u.managerEmail];
+    if (!meId || !mgrId) continue;
+    await prisma.user.update({
+      where: { id: meId },
+      data: { managerId: mgrId },
+    });
+  }
+
+  // 3) Crear/actualizar equipos y membresías
+  for (const t of input.teams) {
+    const leadId = t.leadEmail ? createdUsers[t.leadEmail] : undefined;
+
+    const team = await prisma.team.upsert({
+      where: { companyId_name: { companyId: company.id, name: t.name } },
+      create: {
+        companyId: company.id,
+        name: t.name,
+        description: t.description ?? null,
+        leadId: leadId ?? null,
+      },
+      update: {
+        description: t.description ?? null,
+        leadId: leadId ?? null,
+      },
+    });
+
+    // Limpiamos membresías duplicadas por si corremos varias veces
+    for (const m of t.members) {
+      const uid = createdUsers[m.email];
+      if (!uid) continue;
+      await prisma.teamMembership.upsert({
+        where: { teamId_userId: { teamId: team.id, userId: uid } },
+        create: {
+          teamId: team.id,
+          userId: uid,
+          roleInTeam: (m.roleInTeam as any) ?? "MEMBER",
+        },
+        update: {
+          roleInTeam: (m.roleInTeam as any) ?? "MEMBER",
+        },
+      });
+    }
+  }
+
+  console.log(`✅ Company lista: ${company.companyName}`);
+  return company;
+}
+
+/** ======== MAIN ======== */
 async function main() {
-  // Empresa
-  const company = await ensureCompany();
+  await upsertRoles();
 
-  // Admin
-  const admin = await createOrUpdateAdmin(company.id);
+  // Empresa de sistema y admin
+  const sysCompany = await ensureSystemCompany();
+  await ensureSystemAdmin(sysCompany.id);
 
-  // Empleados
-  await createEmployees(company.id, admin.id);
+  // Empresa 1
+  await createCompanyWithPeople({
+    companyName: "DevSoft",
+    contactEmail: "contacto@devsoft.com",
+    contactName: "Carla Dev",
+    phone: "+54 11 5555-1111",
+    users: [
+      {
+        email: "juan@devsoft.com",
+        name: "Juan Martínez",
+        roleName: "Manager",
+        position: "Engineering Manager",
+        department: "Engineering",
+        seniority: "SR",
+        workMode: "HYBRID",
+      },
+      {
+        email: "zoel@devsoft.com",
+        name: "Zoel Villar",
+        roleName: "Empleado",
+        position: "Desarrollador",
+        department: "Frontend",
+        seniority: "SSR",
+        managerEmail: "juan@devsoft.com",
+        workMode: "REMOTE",
+      },
+      {
+        email: "lucia@devsoft.com",
+        name: "Lucía Pérez",
+        roleName: "Empleado",
+        position: "Desarrolladora",
+        department: "Frontend",
+        seniority: "SSR",
+        managerEmail: "juan@devsoft.com",
+      },
+      {
+        email: "matias@devsoft.com",
+        name: "Matías Rojas",
+        roleName: "Analista",
+        position: "QA Analyst",
+        department: "QA",
+        seniority: "JR",
+        managerEmail: "juan@devsoft.com",
+      },
+      {
+        email: "paula@devsoft.com",
+        name: "Paula González",
+        roleName: "Empleado",
+        position: "PM",
+        department: "Product",
+        seniority: "SR",
+        managerEmail: "juan@devsoft.com",
+        workMode: "ONSITE",
+      },
+      {
+        email: "admin@devsoft.com",
+        name: "Admin DevSoft",
+        roleName: "Administrador",
+        position: "IT Admin",
+        department: "IT",
+      },
+    ],
+    teams: [
+      {
+        name: "Frontend",
+        description: "Squad Frontend",
+        leadEmail: "juan@devsoft.com",
+        members: [
+          { email: "juan@devsoft.com", roleInTeam: "LEAD" },
+          { email: "zoel@devsoft.com" },
+          { email: "lucia@devsoft.com" },
+        ],
+      },
+      {
+        name: "QA & Product",
+        description: "Calidad y Producto",
+        leadEmail: "paula@devsoft.com",
+        members: [
+          { email: "paula@devsoft.com", roleInTeam: "LEAD" },
+          { email: "matias@devsoft.com" },
+        ],
+      },
+    ],
+  });
 
-  console.log("✅ Seed de empresa + 10 empleados + admin completado.");
+  // Empresa 2
+  await createCompanyWithPeople({
+    companyName: "TechHouse",
+    contactEmail: "hello@techhouse.com",
+    contactName: "Diego Tech",
+    phone: "+54 11 5555-2222",
+    users: [
+      {
+        email: "mariana@techhouse.com",
+        name: "Mariana Suárez",
+        roleName: "Manager",
+        position: "Engineering Manager",
+        department: "Engineering",
+        seniority: "SR",
+        workMode: "HYBRID",
+      },
+      {
+        email: "roberto@techhouse.com",
+        name: "Roberto Díaz",
+        roleName: "Empleado",
+        position: "Backend Dev",
+        department: "Backend",
+        seniority: "SSR",
+        managerEmail: "mariana@techhouse.com",
+      },
+      {
+        email: "ana@techhouse.com",
+        name: "Ana Torres",
+        roleName: "Analista",
+        position: "Data Analyst",
+        department: "Data",
+        seniority: "JR",
+        managerEmail: "mariana@techhouse.com",
+      },
+      {
+        email: "eva@techhouse.com",
+        name: "Eva Gómez",
+        roleName: "Empleado",
+        position: "UX Designer",
+        department: "Design",
+        seniority: "SR",
+        managerEmail: "mariana@techhouse.com",
+        workMode: "REMOTE",
+      },
+      {
+        email: "admin@techhouse.com",
+        name: "Admin TechHouse",
+        roleName: "Administrador",
+        position: "IT Admin",
+        department: "IT",
+      },
+    ],
+    teams: [
+      {
+        name: "Platform",
+        description: "Infra & Backend",
+        leadEmail: "mariana@techhouse.com",
+        members: [
+          { email: "mariana@techhouse.com", roleInTeam: "LEAD" },
+          { email: "roberto@techhouse.com" },
+          { email: "ana@techhouse.com" },
+        ],
+      },
+      {
+        name: "Design",
+        description: "Diseño y UX",
+        leadEmail: "eva@techhouse.com",
+        members: [{ email: "eva@techhouse.com", roleInTeam: "LEAD" }],
+      },
+    ],
+  });
+
+  console.log("🎉 Seed completa OK");
 }
 
 main()
