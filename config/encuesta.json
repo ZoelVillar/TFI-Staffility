@@ -1,0 +1,235 @@
+{
+  "id": "burnout_survey_v1",
+  "title": "Encuesta de Burnout y Estrés Laboral (versión simple)",
+  "version": "1.0.0",
+  "language": "es-AR",
+  "description": "Instrumento breve inspirado en CBI/JD-R. Todas las preguntas son de opción múltiple en escala de 5 puntos. El puntaje final se normaliza a 0–100 (mayor = más riesgo).",
+  "scale": {
+    "id": "freq_5",
+    "label": "Frecuencia (últimas 4 semanas)",
+    "options": [
+      { "value": 0, "label": "Nunca" },
+      { "value": 1, "label": "Raramente" },
+      { "value": 2, "label": "A veces" },
+      { "value": 3, "label": "Frecuentemente" },
+      { "value": 4, "label": "Siempre" }
+    ]
+  },
+  "dimensions": [
+    {
+      "id": "personal_exhaustion",
+      "name": "Agotamiento personal",
+      "weight": 1.0
+    },
+    { "id": "workload_demands", "name": "Carga y demandas", "weight": 1.0 },
+    { "id": "control_autonomy", "name": "Control y autonomía", "weight": 1.0 },
+    { "id": "social_support", "name": "Apoyo social", "weight": 1.0 },
+    { "id": "values_fit", "name": "Ajuste de valores", "weight": 1.0 }
+  ],
+  "scoring": {
+    "scaleId": "freq_5",
+    "reverseRule": "Para items con reverse=true, usar (4 - value).",
+    "questionAggregation": "Promedio simple por dimensión (ponderado por 'weight').",
+    "totalAggregation": "Promedio simple de las dimensiones (ponderado por 'weight').",
+    "normalization": "score_0_100 = promedio * 25"
+  },
+  "questions": [
+    {
+      "id": "Q01",
+      "dimension": "personal_exhaustion",
+      "text": "Me siento física o mentalmente agotado al final de la jornada.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q02",
+      "dimension": "personal_exhaustion",
+      "text": "Me cuesta recuperar energía incluso después de descansar.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q03",
+      "dimension": "personal_exhaustion",
+      "text": "Me siento emocionalmente drenado por el trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q04",
+      "dimension": "personal_exhaustion",
+      "text": "Me resulta difícil concentrarme por fatiga.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+
+    {
+      "id": "Q05",
+      "dimension": "workload_demands",
+      "text": "La cantidad de trabajo que tengo es excesiva.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q06",
+      "dimension": "workload_demands",
+      "text": "El ritmo de trabajo es demasiado intenso para mí.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q07",
+      "dimension": "workload_demands",
+      "text": "Los plazos de entrega me generan presión constante.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q08",
+      "dimension": "workload_demands",
+      "text": "Las interrupciones y cambios de prioridad me abruman.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+
+    {
+      "id": "Q09",
+      "dimension": "control_autonomy",
+      "text": "Tengo margen para decidir cómo organizar mi trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q10",
+      "dimension": "control_autonomy",
+      "text": "Puedo influir en las tareas que realizo o en mi carga laboral.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q11",
+      "dimension": "control_autonomy",
+      "text": "Dispongo de tiempo suficiente para hacer bien mi trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q12",
+      "dimension": "control_autonomy",
+      "text": "Cuento con los recursos necesarios (herramientas, información) para cumplir mis tareas.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+
+    {
+      "id": "Q13",
+      "dimension": "social_support",
+      "text": "Recibo apoyo adecuado de mi líder cuando lo necesito.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q14",
+      "dimension": "social_support",
+      "text": "Mis compañeros me ayudan a resolver problemas del trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q15",
+      "dimension": "social_support",
+      "text": "Recibo reconocimiento cuando hago un buen trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+
+    {
+      "id": "Q16",
+      "dimension": "values_fit",
+      "text": "Las tareas que realizo están alineadas con mis valores personales.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q17",
+      "dimension": "values_fit",
+      "text": "Siento que el modo de trabajar del equipo es consistente con lo que considero correcto.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q18",
+      "dimension": "values_fit",
+      "text": "Percibo justicia en la distribución de tareas y reconocimientos.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+
+    {
+      "id": "Q19",
+      "dimension": "personal_exhaustion",
+      "text": "Me cuesta desconectar del trabajo fuera del horario laboral.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q20",
+      "dimension": "workload_demands",
+      "text": "Las exigencias del trabajo afectan mi sueño o descanso.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q21",
+      "dimension": "personal_exhaustion",
+      "text": "Me siento irritable o impaciente debido al trabajo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": false
+    },
+    {
+      "id": "Q22",
+      "dimension": "control_autonomy",
+      "text": "Tengo claridad sobre lo que se espera de mí en mi rol.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q23",
+      "dimension": "social_support",
+      "text": "Puedo hablar abiertamente de sobrecarga o problemas sin temor a consecuencias negativas.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    },
+    {
+      "id": "Q24",
+      "dimension": "values_fit",
+      "text": "Siento que mi trabajo aporta un propósito significativo.",
+      "scaleId": "freq_5",
+      "weight": 1.0,
+      "reverse": true
+    }
+  ]
+}

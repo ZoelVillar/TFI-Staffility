@@ -1,64 +1,47 @@
-// app/api/team/my/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireCompanyScope } from "@/lib/session";
-import { PublicError } from "@/lib/errors";
 
+/**
+ * Devuelve los equipos donde el usuario actual es miembro (TeamMembership)
+ * Filtros: q por nombre de team (contiene)
+ * KPIs: totalTeams, totalMembers (suma miembros de cada team), teamsLead (donde es lead)
+ */
 export async function GET(req: Request) {
   const { user, companyId } = await requireCompanyScope();
-  // Cualquier usuario autenticado del tenant puede ver "su equipo" (sus reportes directos)
 
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
-  const roleFilter = searchParams.get("role")?.trim() || undefined;
 
-  // líder (manager del usuario)
-  const leader = user?.managerId
-    ? await prisma.user.findFirst({
-        where: { id: user.managerId, companyId },
+  // memberships del user → teams
+  const memberships = await prisma.teamMembership.findMany({
+    where: { userId: user.id, team: { companyId } },
+    select: {
+      team: {
         select: {
           id: true,
           name: true,
-          email: true,
-          image: true,
-          position: true,
+          description: true,
+          leadId: true,
+          lead: { select: { id: true, name: true, email: true, image: true } },
+          _count: { select: { memberships: true } },
         },
-      })
-    : null;
-
-  // reportes directos (mi equipo)
-  const whereReports: any = {
-    companyId,
-    managerId: user.id,
-    ...(q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
-            { position: { contains: q, mode: "insensitive" } },
-            { department: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : {}),
-    ...(roleFilter
-      ? { position: { contains: roleFilter, mode: "insensitive" } }
-      : {}),
-  };
-
-  const members = await prisma.user.findMany({
-    where: whereReports,
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      image: true,
-      position: true,
-      department: true,
-      seniority: true,
-      status: true,
+      },
     },
   });
 
-  return NextResponse.json({ leader, members });
+  let teams = memberships.map((m) => m.team);
+
+  if (q) {
+    const s = q.toLowerCase();
+    teams = teams.filter((t) => t.name.toLowerCase().includes(s));
+  }
+
+  const kpis = {
+    totalTeams: teams.length,
+    totalMembers: teams.reduce((a, t) => a + t._count.memberships, 0),
+    teamsLead: teams.filter((t) => t.leadId === user.id).length,
+  };
+
+  return NextResponse.json({ teams, kpis });
 }
