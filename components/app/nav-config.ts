@@ -33,6 +33,11 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/team",
         requiredPerm: PERMISSIONS.TEAM_VIEW,
       },
+      {
+        label: "Gestionar equipos",
+        href: "/team",
+        requiredPerm: PERMISSIONS.TEAM_MANAGE,
+      },
     ],
   },
   {
@@ -51,28 +56,34 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Roles",
-    items: [
-      {
-        label: "Ver roles",
-        href: "/admin/roles",
-        requiredPerm: PERMISSIONS.ROLES_VIEW,
-      },
-      {
-        label: "Crear rol",
-        href: "/admin/roles/new",
-        requiredPerm: PERMISSIONS.ROLES_MANAGE,
-      },
-    ],
-  },
-  {
     label: "Sistema",
     items: [
       {
         label: "Empresas",
         href: "/companies",
-        requiredPerm:
-          PERMISSIONS.COMPANIES_VIEW || PERMISSIONS.SYSTEM_COMPANIES_VIEW,
+        requiredPerm: PERMISSIONS.SYSTEM_COMPANIES_VIEW,
+      },
+
+      {
+        label: "Gestionar rol",
+        href: "/system/roles",
+        requiredPerm: PERMISSIONS.ROLES_MANAGE,
+      },
+    ],
+  },
+  ,
+  {
+    label: "Carga de trabajo",
+    items: [
+      {
+        label: "Ver mi carga laboral",
+        href: "/my-work",
+        requiredPerm: PERMISSIONS.SURVEY_VIEW,
+      },
+      {
+        label: "Ver carga laboral del equipo",
+        href: "/team/workload",
+        requiredPerm: PERMISSIONS.SURVEY_VIEW,
       },
     ],
   },

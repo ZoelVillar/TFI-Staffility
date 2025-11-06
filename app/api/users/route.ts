@@ -72,29 +72,124 @@ export async function GET(req: Request) {
 }
 
 // POST: crear empleado (dentro del tenant del Manager)
+function ensureEnum<T extends string>(
+  value: any,
+  allowed: readonly T[] | T[] | null | undefined
+): T | null {
+  if (!value) return null;
+  const v = String(value).toUpperCase();
+  return (allowed as string[]).includes(v) ? (v as T) : null;
+}
+
+const EMPLOYMENT_TYPES = [
+  "FULL_TIME",
+  "PART_TIME",
+  "CONTRACTOR",
+  "INTERN",
+] as const;
+const WORK_MODES = ["ONSITE", "HYBRID", "REMOTE"] as const;
+const SENIORITIES = ["JR", "SSR", "SR"] as const;
+const STATUSES = ["ACTIVE", "INACTIVE", "ON_LEAVE"] as const;
+
 export async function POST(req: Request) {
   const { user, companyId } = await requireCompanyScope();
-  // if (!hasRole(user, "Manager")) throw new PublicError("No autorizado", 403);
 
   const body = await req.json();
+  const {
+    name,
+    email,
+    password,
+    roleId, // requerido
+    position,
+    department,
+    phone,
+    image,
+    workMode,
+    employmentType,
+    seniority,
+    status, // opcional (default ACTIVE)
+    managerId, // opcional: validar que pertenezca a la misma company
+    locationCity,
+    locationCountry,
+    startDate, // ISO string
+    endDate, // ISO string
+    capacityHoursPerWeek,
+    capacitySpPerWeek,
+    hoursPerStoryPoint,
+  } = body ?? {};
 
-  if (!body?.email || !body?.name || !body?.password || !body?.roleId) {
-    throw new PublicError("Datos incompletos", 422);
+  // Validaciones mínimas
+  if (!email || !password || !roleId) {
+    throw new PublicError(
+      "Faltan campos obligatorios: email, password, roleId",
+      422
+    );
   }
 
-  const passwordHash = await bcrypt.hash(String(body.password), 10);
+  // Normalizaciones / enums
+  const _employmentType = ensureEnum(employmentType, EMPLOYMENT_TYPES);
+  const _workMode = ensureEnum(workMode, WORK_MODES);
+  const _seniority = ensureEnum(seniority, SENIORITIES);
+  const _status = ensureEnum(status ?? "ACTIVE", STATUSES) ?? "ACTIVE";
+
+  // Validar unicidad de email
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    throw new PublicError("Ya existe un usuario con ese email", 409);
+  }
+
+  // Validar roleId
+  const role = await prisma.role.findUnique({ where: { id: roleId } });
+  if (!role) throw new PublicError("Rol inválido", 422);
+
+  // (Opcional) Validar managerId (si vino) que sea del mismo tenant
+  let _managerId: string | null = null;
+  if (managerId) {
+    const mgr = await prisma.user.findFirst({
+      where: { id: String(managerId), companyId },
+      select: { id: true },
+    });
+    if (!mgr)
+      throw new PublicError(
+        "managerId inválido (no pertenece a tu empresa)",
+        422
+      );
+    _managerId = mgr.id;
+  }
+
+  const passwordHash = await bcrypt.hash(String(password), 10);
 
   const created = await prisma.user.create({
     data: {
-      name: body.name,
-      email: body.email,
+      name: name ?? null,
+      email,
       password: passwordHash,
-      companyId, // siempre del Manager
-      roleId: body.roleId, // según tu ejemplo
-      position: body.position ?? null,
-      phone: body.phone ?? null,
-      image: body.image ?? null,
-      department: body.department ?? null,
+
+      companyId, // siempre scoping al tenant del manager
+      roleId,
+
+      // Datos de empleado
+      position: position ?? null,
+      department: department ?? null,
+      phone: phone ?? null,
+      image: image ?? null,
+      workMode: _workMode,
+      employmentType: _employmentType,
+      seniority: _seniority,
+      status: _status,
+      managerId: _managerId,
+      locationCity: locationCity ?? null,
+      locationCountry: locationCountry ?? null,
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
+
+      // Capacidades (opcionales)
+      capacityHoursPerWeek:
+        typeof capacityHoursPerWeek === "number" ? capacityHoursPerWeek : null,
+      capacitySpPerWeek:
+        typeof capacitySpPerWeek === "number" ? capacitySpPerWeek : null,
+      hoursPerStoryPoint:
+        typeof hoursPerStoryPoint === "number" ? hoursPerStoryPoint : null,
     },
     select: { id: true },
   });
