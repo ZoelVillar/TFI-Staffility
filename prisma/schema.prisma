@@ -126,12 +126,21 @@ model User {
   Campaign        Campaign[]
   SurveyResponse  SurveyResponse[]
 
+  // Gestion de carga laboral
+  capacityHoursPerWeek Int?
+  capacitySpPerWeek    Int?
+  hoursPerStoryPoint   Int?
+  tasksOwned           Task[]
+  workloadSnapshots    WorkloadSnapshot[]
+  TaskComment          TaskComment[]
+
   @@unique([companyId, documentId])
   @@index([companyId, name])
   @@index([companyId, email])
   @@index([companyId, phone])
   @@index([companyId, status])
   @@index([companyId, createdAt, id])
+  @@index([companyId, seniority])
   @@map("users")
 }
 
@@ -151,6 +160,7 @@ model Team {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   CampaignTargetTeam CampaignTargetTeam[]
+  Task               Task[]
 
   @@unique([companyId, name]) // nombre único por empresa
   @@index([companyId])
@@ -192,6 +202,7 @@ model Company {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   Campaign     Campaign[]
+  Task         Task[]
 
   @@map("companies")
 }
@@ -288,4 +299,130 @@ model SurveyResponse {
   @@index([campaignId])
   @@index([userId])
   @@map("survey_responses")
+}
+
+// Estados básicos del ciclo de vida
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  BLOCKED
+  CANCELLED
+}
+
+// Prioridad simple para ordenar y reportar
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// Tipificación mínima para reporting
+enum TaskType {
+  FEATURE
+  BUG
+  MAINTENANCE
+  SUPPORT
+  CHORE
+}
+
+// Para snapshots/semaforización semanal
+enum RiskLevel {
+  OK
+  ATTENTION
+  CRITICAL
+}
+
+model Task {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // dueño único (el empleado que gestiona su carga)
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // opcional: asociar a un equipo (visibilidad en panel manager por team)
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String?
+
+  type     TaskType     @default(FEATURE)
+  priority TaskPriority @default(MEDIUM)
+  status   TaskStatus   @default(PENDING)
+
+  // Planificación
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+
+  // Estimaciones
+  estimateSp    Int  @default(0) // estimación principal en SP
+  estimateHours Int? // denormalizado (SP * hoursPerStoryPoint) si querés
+  progressPct   Int  @default(0) // 0..100
+
+  tags String[] // para filtros rápidos (e.g. "guardia","oncall")
+
+  // Comentarios ligeros (opcional)
+  comments TaskComment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Índices para consultas típicas (tablas/listas/calendario)
+  @@index([companyId, ownerId, status, dueDate])
+  @@index([companyId, teamId])
+  @@index([companyId, ownerId, startDate])
+  @@map("tasks")
+}
+
+model TaskComment {
+  id String @id @default(cuid())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@map("task_comments")
+}
+
+model WorkloadSnapshot {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // semana (ISO monday 00:00) o el lunes local de la compañía
+  weekStart DateTime
+
+  // planificado para esa semana (sumás tasks que intersectan la semana)
+  plannedSp    Int
+  plannedHours Int
+
+  // capacidad resuelta (derivada por la app según User.* + EmploymentType/leave)
+  capacitySp    Int
+  capacityHours Int
+
+  // utilización y riesgo (con redondeo a enteros para reportes rápidos)
+  utilizationPct Int // (plannedHours / capacityHours) * 100
+  riskLevel      RiskLevel // OK/ATTENTION/CRITICAL según umbrales fijos
+
+  // opcional: cruzar con burnout (último score conocido)
+  burnoutScore Decimal? @db.Decimal(5, 2) // 0..100
+  // podrías guardar también el promedio de equipo si querés (“teamBurnoutAvg”).
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, weekStart])
+  @@index([weekStart])
+  @@map("workload_snapshots")
 }

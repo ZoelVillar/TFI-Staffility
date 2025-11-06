@@ -36,6 +36,21 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    label: "Encuestas",
+    items: [
+      {
+        label: "Ver encuestas",
+        href: "/surveys/my",
+        requiredPerm: PERMISSIONS.SURVEY_VIEW,
+      },
+      {
+        label: "Gestionar encuestas",
+        href: "/surveys",
+        requiredPerm: PERMISSIONS.SURVEY_MANAGE,
+      },
+    ],
+  },
+  {
     label: "Roles",
     items: [
       {
