@@ -118,7 +118,11 @@ export default function EmployeesView() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {items.map((emp) => (
-              <EmployeeCard key={emp.id} emp={emp} />
+              <Link key={emp.id} href={`/employees/${emp.id}`} className="block group">
+                <div className="transition-all duration-200 hover:scale-[1.02] hover:shadow-md cursor-pointer">
+                  <EmployeeCard emp={emp} />
+                </div>
+              </Link>
             ))}
           </div>
         )}
@@ -157,7 +161,7 @@ export default function EmployeesView() {
             <CardTitle>Acciones</CardTitle>
           </CardHeader>
           <CardContent className="flex gap-2">
-            <Link href="/employee">
+            <Link href="/employees">
               <Button>Agregar empleado</Button>
             </Link>
           </CardContent>
