@@ -45,3 +45,6 @@ next-env.d.ts
 /generated/prisma
 
 /lib/generated/prisma
+
+repopack-output
+repopack-output.txt
