@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getRiskInfo } from "@/lib/survey";
+
 import {
   BarChart,
   Bar,
@@ -12,6 +14,11 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
 } from "recharts";
 
 type Participant = {
@@ -32,6 +39,7 @@ type ByTeam = {
   participation: number;
   avgScore: number;
 };
+type RadarPoint = { subject: string; score: number; fullMark: number };
 
 function fmtDate(d?: string | null) {
   return d ? new Date(d).toLocaleString() : "—";
@@ -42,6 +50,7 @@ export default function CampaignResultsView({
 }: {
   campaignId: string;
 }) {
+  const [radarData, setRadarData] = useState<RadarPoint[]>([]); // Estado para el radar
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [kpis, setKpis] = useState<{
     target: number;
@@ -82,6 +91,7 @@ export default function CampaignResultsView({
     if (r2.ok) {
       const d2 = await r2.json();
       setByTeam(d2.byTeam ?? []);
+      setRadarData(d2.radarData ?? []); // Cargar datos del radar
     }
   }
 
@@ -150,34 +160,84 @@ export default function CampaignResultsView({
         </CardContent>
       </Card>
 
-      {/* Gráfico: Estrés promedio por equipo */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Estrés promedio por equipo (0–100)</CardTitle>
-        </CardHeader>
-        <CardContent style={{ height: 320 }}>
-          {byTeam.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={byTeam.map((t) => ({
-                  name: t.teamName,
-                  score: Math.round(t.avgScore),
-                }))}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" hide={false} />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Bar dataKey="score" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
+      {/* GRÁFICOS: Layout en Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* 1. Gráfico de Barras por Equipo */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Estrés promedio por equipo</CardTitle>
+          </CardHeader>
+          <CardContent style={{ height: 320 }}>
+            {byTeam.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={byTeam.map((t) => ({
+                    name: t.teamName,
+                    score: Math.round(t.avgScore),
+                  }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" hide={false} />
+                  <YAxis domain={[0, 100]} />
+                  <Tooltip />
+                  <Bar dataKey="score" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No hay datos por equipo.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 2. NUEVO: Análisis Dimensional (Radar) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Análisis de Factores de Riesgo</CardTitle>
             <p className="text-sm text-muted-foreground">
-              No hay datos por equipo.
+              Desglose de las dimensiones que más impactan al equipo.
             </p>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent style={{ height: 320 }}>
+            {radarData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart
+                  cx="50%"
+                  cy="50%"
+                  outerRadius="80%"
+                  data={radarData}
+                >
+                  <PolarGrid stroke="#e5e7eb" />
+                  <PolarAngleAxis
+                    dataKey="subject"
+                    tick={{ fill: "#6b7280", fontSize: 12 }}
+                  />
+                  <PolarRadiusAxis
+                    angle={30}
+                    domain={[0, 100]}
+                    tick={false}
+                    axisLine={false}
+                  />
+                  <Radar
+                    name="Equipo"
+                    dataKey="score"
+                    stroke="#f97316" /* Orange-500 */
+                    fill="#f97316"
+                    fillOpacity={0.4}
+                  />
+                  <Tooltip />
+                </RadarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                Faltan datos para generar el análisis dimensional.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Tabla de participantes */}
       <Card>
@@ -229,12 +289,25 @@ export default function CampaignResultsView({
                     <td>{fmtDate(p.submittedAt)}</td>
                     <td>
                       {p.responded ? (
-                        <span className="text-xs px-2 py-1 rounded-full border bg-emerald-50 border-emerald-200 text-emerald-700">
-                          {p.score}
-                        </span>
+                        (() => {
+                          const score = p.score ?? 0;
+                          const risk = getRiskInfo(score);
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span className={`font-bold ${risk.color}`}>
+                                {score}
+                              </span>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded border bg-white ${risk.color} border-current opacity-80`}
+                              >
+                                {risk.level}
+                              </span>
+                            </div>
+                          );
+                        })()
                       ) : (
-                        <span className="text-xs px-2 py-1 rounded-full border bg-rose-50 border-rose-200 text-rose-700">
-                          Sin respuesta
+                        <span className="text-xs text-muted-foreground italic">
+                          Pendiente
                         </span>
                       )}
                     </td>

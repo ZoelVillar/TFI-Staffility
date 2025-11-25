@@ -1,7 +1,10 @@
+// app/api/team/[id]/members/route.ts
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireCompanyScope } from "@/lib/session";
 import { PublicError } from "@/lib/errors";
+import { hasAnyPermission } from "@/lib/auth"; // <--- Importar
+import { PERMISSIONS } from "@/config/roles"; // <--- Importar
 
 /**
  * Devuelve info del team + lista de miembros (via TeamMembership)
@@ -9,14 +12,16 @@ import { PublicError } from "@/lib/errors";
  */
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Fix: params es Promise en Next 15
 ) {
   const { user, companyId } = await requireCompanyScope();
+  const { id } = await params; // Await params
+
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
 
   const team = await prisma.team.findFirst({
-    where: { id: params.id, companyId },
+    where: { id, companyId },
     select: {
       id: true,
       name: true,
@@ -28,12 +33,27 @@ export async function GET(
 
   if (!team) throw new PublicError("Equipo no encontrado", 404);
 
-  // (opcional) exigir que el usuario sea miembro del team para ver los miembros:
-  const isMember = await prisma.teamMembership.findFirst({
-    where: { teamId: team.id, userId: user.id },
-    select: { id: true },
-  });
-  if (!isMember) throw new PublicError("No autorizado a ver este equipo", 403);
+  // --- CORRECCIÓN DE SEGURIDAD ---
+  // Permitir acceso si:
+  // 1. Es miembro del equipo
+  // 2. O TIENE permisos globales de ver equipos (Admin/Manager)
+
+  const hasGlobalAccess = hasAnyPermission(user, [
+    PERMISSIONS.TEAM_VIEW,
+    PERMISSIONS.TEAM_MANAGE,
+    PERMISSIONS.SYSTEM_COMPANIES_MANAGE,
+  ]);
+
+  if (!hasGlobalAccess) {
+    const isMember = await prisma.teamMembership.findFirst({
+      where: { teamId: team.id, userId: user.id },
+      select: { id: true },
+    });
+
+    if (!isMember)
+      throw new PublicError("No autorizado a ver este equipo", 403);
+  }
+  // -------------------------------
 
   const memberships = await prisma.teamMembership.findMany({
     where: { teamId: team.id },

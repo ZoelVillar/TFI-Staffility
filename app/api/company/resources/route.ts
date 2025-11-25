@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireCompanyScope } from "@/lib/session";
+import { WORKLOAD_CONFIG } from "@/lib/workload";
 
 export async function GET() {
   const { user, companyId } = await requireCompanyScope();
@@ -28,6 +29,7 @@ export async function GET() {
 
   return NextResponse.json({
     roles,
-    managers: potentialManagers
+    managers: potentialManagers,
+    workloadConfig: WORKLOAD_CONFIG 
   });
 }

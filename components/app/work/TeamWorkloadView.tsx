@@ -1,392 +1,209 @@
 // components/app/work/TeamWorkloadView.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { startOfISOWeek, addWeeks, subWeeks, format, addDays } from "date-fns";
+import { es } from "date-fns/locale";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Loader2, AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
+import TeamHeatmap from "./TeamHeatmap"; // Asegúrate que este componente exista (Fase C)
 
-type MemberBase = {
+// Tipos del backend
+type WorkloadUser = {
   id: string;
-  name: string | null;
-  email: string;
+  name: string;
   image: string | null;
-  position: string | null;
-  department: string | null;
-  seniority: "JR" | "SSR" | "SR" | null;
-  status: "ACTIVE" | "INACTIVE" | "ON_LEAVE";
-  employmentType: "FULL_TIME" | "PART_TIME" | "CONTRACTOR" | "INTERN" | null;
   capacityHoursPerWeek: number | null;
-  capacitySpPerWeek: number | null;
-  hoursPerStoryPoint: number | null;
+  stats: {
+    plannedHours: number;
+    capacity: number;
+    utilization: number;
+    risk: "OK" | "ATTENTION" | "CRITICAL";
+    activeCount: number;
+    blockedCount: number;
+  };
 };
 
-type WorkloadDTO = {
-  // devuelto por /api/manage/workload/user/[id]?window=week
-  period: { from: string; to: string };
-  plannedHours: number; // total horas planificadas en la ventana
-  capacityHours: number; // capacidad resuelta (horas) del usuario para la ventana
-  dueSoon: number; // tareas que vencen <= 3 días
-  overdue: number; // tareas vencidas no completadas
-};
-
-type TeamPayload = {
-  team: { id: string; name: string; description: string | null };
-  // miembros del team (por TeamMembership) scopiados al companyId del requester
-  members: MemberBase[];
+type TeamResponse = {
+  weekStart: string;
+  users: WorkloadUser[];
 };
 
 export default function TeamWorkloadView({ teamId }: { teamId: string }) {
-  const [team, setTeam] = useState<TeamPayload["team"] | null>(null);
-  const [members, setMembers] = useState<MemberBase[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<WorkloadUser[]>([]);
+  const [weekStart, setWeekStart] = useState(startOfISOWeek(new Date()));
+  const [teamName, setTeamName] = useState("Equipo");
 
-  // filtros
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<
-    "ALL" | "ACTIVE" | "INACTIVE" | "ON_LEAVE"
-  >("ALL");
-  const [seniority, setSeniority] = useState<"ALL" | "JR" | "SSR" | "SR">(
-    "ALL"
-  );
-  const [isPending, startTransition] = useTransition();
+  // Tareas crudas para el heatmap
+  const [rawTasks, setRawTasks] = useState<any[]>([]);
 
-  // workloads por usuario (cache local)
-  const [workloads, setWorkloads] = useState<
-    Record<string, WorkloadDTO | null>
-  >({});
-
-  function defaultHoursByEmploymentType(et?: string | null) {
-    switch (et) {
-      case "FULL_TIME":
-        return 40;
-      case "PART_TIME":
-        return 20;
-      case "CONTRACTOR":
-        return 30;
-      case "INTERN":
-        return 15;
-      default:
-        return 40;
-    }
-  }
-
-  // carga team + miembros
-  async function loadTeamMembers(signal?: AbortSignal) {
+  async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/team/${teamId}/members`, {
-        cache: "no-store",
-        signal,
-      });
-      if (!res.ok) throw new Error("No se pudieron cargar miembros del equipo");
-      const data = (await res.json()) as TeamPayload;
-      setTeam(data.team);
-      setMembers(data.members);
+      // 1. Datos Agregados (KPIs)
+      const resSummary = await fetch(`/api/manage/workload/summary?teamId=${teamId}&week=${weekStart.toISOString()}`);
+      if (resSummary.ok) {
+        const summaryData: TeamResponse = await resSummary.json();
+        setData(summaryData.users);
+      }
+
+      // 2. Tareas Crudas para Heatmap (Rango Semanal)
+      const rangeEnd = addDays(weekStart, 7).toISOString();
+      const resTasks = await fetch(`/api/tasks?teamId=${teamId}&from=${weekStart.toISOString()}&to=${rangeEnd}&take=200`);
+      if (resTasks.ok) {
+        const tasksData = await resTasks.json();
+        setRawTasks(tasksData.items);
+      }
+
+      // 3. Info del Team (Nombre)
+      const resTeam = await fetch(`/api/team/${teamId}`);
+      if (resTeam.ok) {
+        const t = await resTeam.json();
+        setTeamName(t.team.name);
+      }
+
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }
 
-  // carga workload para un usuario
-  async function loadWorkloadFor(userId: string) {
-    try {
-      const res = await fetch(
-        `/api/manage/workload/user/${userId}?window=week`,
-        { cache: "no-store" }
-      );
-      if (!res.ok) throw new Error("No se pudo cargar workload");
-      const data = (await res.json()) as WorkloadDTO;
-      setWorkloads((prev) => ({ ...prev, [userId]: data }));
-    } catch (e) {
-      // si falla, guardamos null para no bloquear la UI
-      setWorkloads((prev) => ({ ...prev, [userId]: null }));
-    }
-  }
-
   useEffect(() => {
-    const controller = new AbortController();
-    loadTeamMembers(controller.signal);
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId]);
+    load();
+  }, [teamId, weekStart]);
 
-  // cuando cambian los miembros, pedimos workloads (N+1; optimizable a futuro)
-  useEffect(() => {
-    if (members.length === 0) return;
-    const ids = members.map((m) => m.id);
-    startTransition(() => {
-      ids.forEach((id) => loadWorkloadFor(id));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
+  if (loading && data.length === 0) return <div className="flex justify-center p-10"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
 
-  // filtros
-  const filtered = useMemo(() => {
-    return members.filter((m) => {
-      const passQ =
-        !q ||
-        (m.name?.toLowerCase().includes(q.toLowerCase()) ?? false) ||
-        m.email.toLowerCase().includes(q.toLowerCase()) ||
-        (m.position?.toLowerCase().includes(q.toLowerCase()) ?? false) ||
-        (m.department?.toLowerCase().includes(q.toLowerCase()) ?? false);
-
-      const passStatus = status === "ALL" || m.status === status;
-      const passSeniority = seniority === "ALL" || m.seniority === seniority;
-
-      return passQ && passStatus && passSeniority;
-    });
-  }, [members, q, status, seniority]);
-
-  // KPIs globales (sobre filtrados)
-  const kpis = useMemo(() => {
-    if (filtered.length === 0) {
-      return { avgUtil: 0, attention: 0, critical: 0, dueSoon: 0, overdue: 0 };
-    }
-    let sumUtil = 0;
-    let countUtil = 0;
-    let attention = 0;
-    let critical = 0;
-    let dueSoon = 0;
-    let overdue = 0;
-
-    for (const m of filtered) {
-      const w = workloads[m.id];
-      const cap =
-        w?.capacityHours ??
-        m.capacityHoursPerWeek ??
-        defaultHoursByEmploymentType(m.employmentType);
-      const planned = w?.plannedHours ?? 0;
-      const util = cap > 0 ? Math.round((planned / cap) * 100) : 0;
-
-      if (!Number.isNaN(util)) {
-        sumUtil += util;
-        countUtil += 1;
-      }
-
-      // reglas: atención 86–100, críticos >100
-      if (util > 100) critical += 1;
-      else if (util >= 86) attention += 1;
-
-      dueSoon += w?.dueSoon ?? 0;
-      overdue += w?.overdue ?? 0;
-    }
-    const avgUtil = countUtil > 0 ? Math.round(sumUtil / countUtil) : 0;
-    return { avgUtil, attention, critical, dueSoon, overdue };
-  }, [filtered, workloads]);
-
-  function riskBadge(util: number) {
-    const cls =
-      util > 100
-        ? "bg-rose-50 text-rose-700 border-rose-200"
-        : util >= 86
-        ? "bg-amber-50 text-amber-700 border-amber-200"
-        : "bg-emerald-50 text-emerald-700 border-emerald-200";
-    const label = util > 100 ? "Crítico" : util >= 86 ? "Atención" : "OK";
-    return (
-      <span className={`text-xs px-2 py-1 rounded-full border ${cls}`}>
-        {label}
-      </span>
-    );
-  }
+  // KPIs Locales
+  const totalActive = data.reduce((a, u) => a + u.stats.activeCount, 0);
+  const totalBlocked = data.reduce((a, u) => a + u.stats.blockedCount, 0);
+  // Promedio de utilización
+  const teamUtil = data.length > 0 ? Math.round(data.reduce((a, u) => a + u.stats.utilization, 0) / data.length) : 0;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Izquierda: lista empleados del team */}
-      <div className="lg:col-span-8 space-y-4">
-        <Card>
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <CardTitle>Carga laboral — {team?.name ?? "Equipo"}</CardTitle>
-              {team?.description && (
-                <p className="text-sm text-muted-foreground">
-                  {team.description}
-                </p>
-              )}
-            </div>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between gap-4 md:items-center">
+        <div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+            <Link href="/team/workload" className="hover:underline">← Volver al panel global</Link>
+          </div>
+          <h1 className="text-2xl font-bold">{teamName}</h1>
+        </div>
 
-            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-              <Input
-                placeholder="Buscar por nombre, email, rol, área…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-              <Select value={status} onValueChange={(v: any) => setStatus(v)}>
-                <SelectTrigger className="min-w-[150px]">
-                  <SelectValue placeholder="Estado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Estado: Todos</SelectItem>
-                  <SelectItem value="ACTIVE">Activo</SelectItem>
-                  <SelectItem value="ON_LEAVE">En licencia</SelectItem>
-                  <SelectItem value="INACTIVE">Inactivo</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select
-                value={seniority}
-                onValueChange={(v: any) => setSeniority(v)}
-              >
-                <SelectTrigger className="min-w-[150px]">
-                  <SelectValue placeholder="Seniority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Seniority: Todos</SelectItem>
-                  <SelectItem value="JR">JR</SelectItem>
-                  <SelectItem value="SSR">SSR</SelectItem>
-                  <SelectItem value="SR">SR</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </CardHeader>
-        </Card>
-
-        {/* Grid de tarjetas por empleado */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
-          {filtered.map((m) => {
-            const w = workloads[m.id];
-            const cap =
-              w?.capacityHours ??
-              m.capacityHoursPerWeek ??
-              defaultHoursByEmploymentType(m.employmentType);
-            const planned = w?.plannedHours ?? 0;
-            const util = cap > 0 ? Math.round((planned / cap) * 100) : 0;
-
-            return (
-              <Card key={m.id} className="hover:shadow-sm transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="relative w-8 h-8 rounded-full overflow-hidden border">
-                        {/* Si tenés Next/Image configurado con dominios, podés migrar a <Image /> */}
-                        <img
-                          src={
-                            m.image ||
-                            `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(
-                              m.name ?? m.email
-                            )}&size=64&radius=50`
-                          }
-                          alt={m.name ?? m.email}
-                          className="w-8 h-8 object-cover"
-                        />
-                      </div>
-                      <div className="leading-tight">
-                        <div className="font-medium">
-                          {m.name ?? "Sin nombre"}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {m.email}
-                        </div>
-                      </div>
-                    </div>
-                    <div>{riskBadge(util)}</div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <MiniKpi label="Capacidad (h/sem)" value={`${cap}`} />
-                    <MiniKpi label="Planificado (h)" value={`${planned}`} />
-                    <MiniKpi label="% Utilización" value={`${util}%`} />
-                    <MiniKpi label="Seniority" value={m.seniority ?? "—"} />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Badge
-                      variant="outline"
-                      className="border-amber-200 text-amber-700"
-                    >
-                      Por vencer ≤ 3d: {w?.dueSoon ?? 0}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="border-rose-200 text-rose-700"
-                    >
-                      Vencidas: {w?.overdue ?? 0}
-                    </Badge>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <div className="text-xs text-muted-foreground">
-                      {m.position ?? "—"}{" "}
-                      {m.department ? `• ${m.department}` : ""}
-                    </div>
-                    <Link href={`/work/${m.id}`}>
-                      <Button size="sm" variant="secondary">
-                        Ver trabajo
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
-          {filtered.length === 0 && !loading && (
-            <Card>
-              <CardContent className="py-10 text-center text-muted-foreground">
-                Sin miembros que coincidan con el filtro.
-              </CardContent>
-            </Card>
-          )}
+        <div className="flex items-center gap-2 bg-white p-1 rounded-lg border shadow-sm">
+          <Button variant="ghost" size="icon" onClick={() => setWeekStart(d => subWeeks(d, 1))}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="text-sm font-medium min-w-[140px] text-center">
+            {format(weekStart, "d 'de' MMMM", { locale: es })}
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => setWeekStart(d => addWeeks(d, 1))}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
-      {/* Derecha: KPIs del equipo */}
-      <aside className="lg:col-span-4 space-y-4">
-        <Card className="bg-gradient-to-br from-muted/40 to-background border-muted/50">
-          <CardHeader>
-            <CardTitle>KPIs del equipo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3">
-              <BigKpi label="Utilización promedio" value={`${kpis.avgUtil}%`} />
-              <BigKpi label="En atención" value={kpis.attention} />
-              <BigKpi label="Críticos" value={kpis.critical} />
-              <BigKpi label="Por vencer ≤ 3d" value={kpis.dueSoon} />
-              <BigKpi label="Vencidas" value={kpis.overdue} />
-              <BigKpi label="Miembros" value={filtered.length} />
+      {/* KPIs Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Carga del Equipo</p>
+                <div className="text-2xl font-bold mt-1">{teamUtil}%</div>
+              </div>
+              <div className={`p-2 rounded-full ${teamUtil > 100 ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
             </div>
           </CardContent>
         </Card>
-
         <Card>
-          <CardHeader>
-            <CardTitle>Acciones</CardTitle>
-          </CardHeader>
-          <CardContent className="flex gap-2">
-            <Link href={`/team/${teamId}`}>
-              <Button variant="outline">Volver al team</Button>
-            </Link>
-            {/* futuro: export, cambiar ventana temporal, etc. */}
+          <CardContent className="pt-6">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Tareas Activas</p>
+                <div className="text-2xl font-bold mt-1">{totalActive}</div>
+              </div>
+              <div className="p-2 rounded-full bg-blue-100 text-blue-600">
+                <Loader2 className="h-5 w-5" />
+              </div>
+            </div>
           </CardContent>
         </Card>
-      </aside>
-    </div>
-  );
-}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Bloqueos</p>
+                <div className="text-2xl font-bold mt-1 text-red-600">{totalBlocked}</div>
+              </div>
+              <div className="p-2 rounded-full bg-red-100 text-red-600">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-function MiniKpi({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-xl border p-3 text-center">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold">{value}</div>
-    </div>
-  );
-}
+      {/* Heatmap Section */}
+      <Card className="overflow-hidden">
+        <CardHeader className="bg-muted/30 border-b pb-3">
+          <CardTitle className="text-base">Disponibilidad Semanal</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <TeamHeatmap
+            members={data.map(u => ({ id: u.id, name: u.name, image: u.image, capacityHoursPerWeek: u.capacityHoursPerWeek }))}
+            tasks={rawTasks}
+            weekStart={weekStart}
+            hoursPerSP={5} // Default
+          />
+        </CardContent>
+      </Card>
 
-function BigKpi({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-xl border p-4 text-center">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-2xl font-semibold">{value}</div>
+      {/* Lista detallada de miembros y sus métricas */}
+      <div className="grid grid-cols-1 gap-4">
+        <h3 className="text-lg font-semibold">Detalle por Miembro</h3>
+        {data.map(u => (
+          <Card key={u.id} className="flex flex-col sm:flex-row items-center p-4 gap-4 justify-between">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="h-10 w-10 rounded-full bg-slate-200 overflow-hidden">
+                {u.image && <img src={u.image} alt={u.name} className="h-full w-full object-cover" />}
+              </div>
+              <div>
+                <div className="font-medium">{u.name}</div>
+                <div className="text-xs text-muted-foreground">{u.stats.activeCount} tareas activas • {u.stats.blockedCount} bloqueos</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6 w-full sm:w-auto">
+              <div className="text-right">
+                <div className="text-xs text-muted-foreground">Planificado</div>
+                <div className="font-semibold">{u.stats.plannedHours}h <span className="text-muted-foreground font-normal">/ {u.stats.capacity}h</span></div>
+              </div>
+
+              <div className="w-32">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Utilización</span>
+                  <span className={u.stats.utilization > 100 ? "text-red-600 font-bold" : ""}>{u.stats.utilization}%</span>
+                </div>
+                <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${u.stats.risk === 'CRITICAL' ? 'bg-red-500' : u.stats.risk === 'ATTENTION' ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${Math.min(u.stats.utilization, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

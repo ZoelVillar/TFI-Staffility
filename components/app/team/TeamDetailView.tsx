@@ -1,9 +1,12 @@
+// components/app/team/TeamDetailView.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
+import { ArrowLeft, BarChart3, MessageSquare, User } from "lucide-react";
 
 type Member = {
   id: string;
@@ -46,27 +49,55 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
       if (!res.ok) throw new Error("No se pudieron cargar miembros del equipo");
       const data = (await res.json()) as { team: TeamDTO; members: Member[] };
 
-      console.log(res);
       setTeam(data.team);
       setMembers(data.members);
-
-      console.log("Fetched team details:", data.team);
-      console.log("Fetched team members:", data.members);
     } finally {
       setLoading(false);
     }
   }
 
+  // EFECTO PRINCIPAL CORREGIDO: Depende de teamId
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId]);
+
+  // EFECTO DE BÚSQUEDA: Debounce al cambiar query
   useEffect(() => {
     const id = setTimeout(load, 300);
     return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-300">
+      {/* Header de Navegación */}
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Link href="/team">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold">
+              {team?.name ?? "Cargando..."}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Gestión de miembros y roles
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Link href={`/team/${teamId}/workload`}>
+            <Button className="gap-2">
+              <BarChart3 className="h-4 w-4" /> Ver Carga Laboral
+            </Button>
+          </Link>
+        </div>
+      </div>
+
       <Card>
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -77,9 +108,10 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
           </div>
           <div className="flex gap-2 w-full md:w-auto">
             <Input
-              placeholder="Buscar miembro (nombre, rol, email)"
+              placeholder="Buscar miembro..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              className="w-full md:w-64"
             />
           </div>
         </CardHeader>
@@ -87,7 +119,7 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Miembros</CardTitle>
+          <CardTitle>Miembros ({members.length})</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -105,11 +137,11 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
                 {members.map((m) => (
                   <tr
                     key={m.id}
-                    className="border-b last:border-0 hover:bg-muted/20"
+                    className="border-b last:border-0 hover:bg-muted/20 transition-colors"
                   >
                     <td className="py-3 pl-4">
                       <div className="flex items-center gap-3">
-                        <div className="relative w-8 h-8 rounded-full overflow-hidden border">
+                        <div className="relative w-8 h-8 rounded-full overflow-hidden border bg-slate-100">
                           <img
                             src={
                               m.image ||
@@ -153,11 +185,23 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
                     </td>
                     <td className="pr-4">
                       <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="secondary" disabled>
-                          Ver perfil
-                        </Button>
-                        <Button size="sm" disabled>
-                          Enviar mensaje
+                        {/* Enlace al perfil del empleado */}
+                        <Link href={`/employees/${m.id}`}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 px-2"
+                          >
+                            <User className="h-4 w-4 mr-1" /> Perfil
+                          </Button>
+                        </Link>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled
+                          className="h-8 px-2"
+                        >
+                          <MessageSquare className="h-4 w-4" />
                         </Button>
                       </div>
                     </td>
@@ -169,7 +213,7 @@ export default function TeamDetailView({ teamId }: { teamId: string }) {
                       colSpan={5}
                       className="py-8 text-center text-muted-foreground"
                     >
-                      Sin miembros
+                      No se encontraron miembros.
                     </td>
                   </tr>
                 )}

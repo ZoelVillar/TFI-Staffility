@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { requireCompanyScope } from "@/lib/session";
 import { PublicError } from "@/lib/errors";
+import { hasAnyPermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/config/roles";
+import { z } from "zod";
 
 /**
  * Devuelve info del team + lista de miembros (via TeamMembership)
@@ -68,4 +71,58 @@ export async function GET(
   }
 
   return NextResponse.json({ team, members });
+}
+
+const createTeamSchema = z.object({
+  name: z.string().min(2, "El nombre debe tener al menos 2 caracteres"),
+  description: z.string().optional(),
+  leadId: z.string().optional().nullable(),
+});
+
+export async function POST(req: Request) {
+  const { user, companyId } = await requireCompanyScope();
+
+  // 1. Validación de Permisos (RBAC)
+  if (!hasAnyPermission(user, [PERMISSIONS.TEAM_MANAGE, PERMISSIONS.SYSTEM_COMPANIES_MANAGE])) {
+    return new NextResponse("No tienes permisos para crear equipos", { status: 403 });
+  }
+
+  const body = await req.json();
+  
+  // 2. Validación de Datos
+  const validation = createTeamSchema.safeParse(body);
+  if (!validation.success) {
+    return new NextResponse(validation.error.errors[0].message, { status: 400 });
+  }
+  const { name, description, leadId } = validation.data;
+
+  // 3. Validación de Unicidad (Nombre de equipo único por empresa)
+  const existing = await prisma.team.findFirst({
+    where: { companyId, name: { equals: name, mode: "insensitive" } }
+  });
+
+  if (existing) {
+    return new NextResponse("Ya existe un equipo con este nombre en la empresa", { status: 409 });
+  }
+
+  // 4. Creación
+  const newTeam = await prisma.team.create({
+    data: {
+      companyId,
+      name,
+      description: description || null,
+      leadId: leadId || null,
+    }
+  });
+
+  // Opcional: Si asignamos un líder, lo hacemos miembro automáticamente
+  if (leadId) {
+    await prisma.teamMembership.upsert({
+      where: { teamId_userId: { teamId: newTeam.id, userId: leadId } },
+      create: { teamId: newTeam.id, userId: leadId, roleInTeam: "LEAD" },
+      update: { roleInTeam: "LEAD" }
+    });
+  }
+
+  return NextResponse.json({ team: newTeam }, { status: 201 });
 }

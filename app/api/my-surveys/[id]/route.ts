@@ -35,64 +35,81 @@ async function isUserInTarget(
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Correcto: params es Promise
 ) {
   const { user, companyId } = await requireCompanyScope();
-  const { ok, camp, reason } = await isUserInTarget(
-    params.id,
-    user.id,
-    companyId
-  );
+  
+  // 1. Desempaquetamos los params con await
+  const { id } = await params;
+
+  const { ok, camp, reason } = await isUserInTarget(id, user.id, companyId);
+
   if (!ok || !camp) {
     return new NextResponse(reason ?? "No autorizado", { status: 403 });
   }
 
-  // si ya respondió, devolvemos meta para que UI muestre “ya completada”
+  // Buscar respuesta existente
   const already = await prisma.surveyResponse.findFirst({
     where: { campaignId: camp.id, userId: user.id },
     select: { id: true, submittedAt: true, scoreTotal: true },
   });
 
   const now = new Date();
-  const closed = camp.status === "CLOSED" || camp.endDate < now;
+  const isExpired = camp.status === "CLOSED" || new Date(camp.endDate) < now;
+  const isCompleted = !!already;
+
+  // Lógica de estado unificada
+  let myStatus: "PENDING" | "COMPLETED" | "EXPIRED" = "PENDING";
+  if (isCompleted) myStatus = "COMPLETED";
+  else if (isExpired) myStatus = "EXPIRED";
+
+  // Solo enviamos el JSON de preguntas si está PENDING
+  const surveyContent = myStatus === "PENDING" ? getSurvey() : null;
 
   return NextResponse.json({
-    campaign: {
-      id: camp.id,
+    meta: {
       name: camp.name,
       startDate: camp.startDate,
       endDate: camp.endDate,
-      status: closed ? "CLOSED" : "ACTIVE",
+      status: camp.status,
     },
+    myStatus,
     already,
-    survey: closed || already ? null : getSurvey(), // sólo enviamos el cuestionario si puede responder
+    survey: surveyContent, 
   });
 }
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // Corregido: Tipo Promise
 ) {
   const { user, companyId } = await requireCompanyScope();
+  
+  // 1. Corregido: Desempaquetamos params con await antes de usarlo
+  const { id } = await params;
+
   const { ok, camp, reason } = await isUserInTarget(
-    params.id,
+    id, // Usamos la variable desempaquetada
     user.id,
     companyId
   );
+  
   if (!ok || !camp)
     return new NextResponse(reason ?? "No autorizado", { status: 403 });
 
   // bloqueos
   const now = new Date();
-  if (camp.status === "CLOSED" || camp.endDate < now) {
+  if (camp.status === "CLOSED" || new Date(camp.endDate) < now) {
     return new NextResponse("La campaña está cerrada o vencida", {
       status: 400,
     });
   }
+  
   const exists = await prisma.surveyResponse.findFirst({
     where: { campaignId: camp.id, userId: user.id },
     select: { id: true },
   });
+  
   if (exists) {
     return new NextResponse("Ya has respondido esta encuesta", { status: 409 });
   }
@@ -101,6 +118,7 @@ export async function POST(
   // answers: { [questionId]: number }
   const answers = (body?.answers ?? {}) as Record<string, number>;
 
+  // Calculamos score usando la librería actualizada (con dimensiones si aplicaste la Fase 3)
   const { score0to100 } = scoreSurvey(answers);
 
   const saved = await prisma.surveyResponse.create({
@@ -108,7 +126,7 @@ export async function POST(
       campaignId: camp.id,
       userId: user.id,
       scoreTotal: score0to100.toFixed(2),
-      answers, // opcional: puedes eliminar si no querés guardar
+      answers, // Guardamos el JSON para analíticas futuras (Radar chart)
     },
   });
 

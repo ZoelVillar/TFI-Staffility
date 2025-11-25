@@ -33,11 +33,6 @@ export const NAV_GROUPS: NavGroup[] = [
         href: "/team",
         requiredPerm: PERMISSIONS.TEAM_VIEW,
       },
-      {
-        label: "Gestionar equipos",
-        href: "/team",
-        requiredPerm: PERMISSIONS.TEAM_MANAGE,
-      },
     ],
   },
   {

@@ -6,17 +6,22 @@ import {
   resolveCapacityForUser,
   defaultHoursPerSPBySeniority,
 } from "@/lib/workload";
+import { hasAnyPermission } from "@/lib/auth";
+import { PERMISSIONS } from "@/config/roles";
 
+// --- Funciones de utilidad (Preservadas) ---
 function toIntOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : null;
 }
+
 function toDateOrNull(v: unknown): Date | null {
   if (!v) return null;
   const d = new Date(String(v));
   return isNaN(d.getTime()) ? null : d;
 }
+
 function toArrayOfStrings(v: unknown): string[] {
   if (Array.isArray(v))
     return v
@@ -32,38 +37,57 @@ function toArrayOfStrings(v: unknown): string[] {
   return [];
 }
 
+// --- GET Modificado ---
 export async function GET(req: Request) {
   const { user, companyId } = await requireCompanyScope();
-
   const { searchParams } = new URL(req.url);
-  const take = Math.min(parseInt(searchParams.get("take") ?? "20"), 100);
-  const cursor = searchParams.get("cursor") || undefined;
 
+  // Parámetros de paginación y filtros básicos
+  const take = Math.min(parseInt(searchParams.get("take") ?? "100"), 200);
+  const cursor = searchParams.get("cursor") || undefined;
+  
   const status = searchParams.get("status") || undefined;
   const priority = searchParams.get("priority") || undefined;
   const type = searchParams.get("type") || undefined;
-  const teamId = searchParams.get("teamId") || undefined;
   const q = searchParams.get("q")?.trim() || undefined;
-  const tags = searchParams.getAll("tag"); // ?tag=foo&tag=bar
-  const from = searchParams.get("from")
-    ? new Date(searchParams.get("from")!)
-    : undefined;
-  const to = searchParams.get("to")
-    ? new Date(searchParams.get("to")!)
-    : undefined;
+  const tags = searchParams.getAll("tag");
+
+  // Filtros nuevos (Team y Fechas)
+  const teamId = searchParams.get("teamId") || undefined;
+  const from = searchParams.get("from") ? new Date(searchParams.get("from")!) : undefined;
+  const to = searchParams.get("to") ? new Date(searchParams.get("to")!) : undefined;
+
+  // Lógica de Permisos:
+  // Si pido teamId, debo tener permiso para ver equipos/usuarios.
+  // Si no pido teamId, solo veo mis tareas (ownerId = user.id).
+  const isManager = hasAnyPermission(user, [PERMISSIONS.TEAM_VIEW, PERMISSIONS.USERS_VIEW]);
 
   const where: any = {
     companyId,
-    ownerId: user.id,
+    // Lógica crítica:
+    // 1. Si hay teamId Y soy manager -> filtro por teamId (veo tareas de otros).
+    // 2. Si NO hay teamId -> filtro por ownerId (solo mis tareas).
+    ...(teamId && isManager ? { teamId } : { ownerId: user.id }),
+
     ...(status ? { status } : {}),
     ...(priority ? { priority } : {}),
     ...(type ? { type } : {}),
-    ...(teamId ? { teamId } : {}),
+    
+    // Filtro de fechas (overlap logic mejorada)
     ...(from || to
       ? {
           OR: [
+            // Tarea empieza dentro del rango
             { startDate: { gte: from, lte: to } },
+            // Tarea termina dentro del rango
             { dueDate: { gte: from, lte: to } },
+            // Tarea engloba el rango (empieza antes y termina después)
+            { 
+                AND: [
+                    { startDate: { lte: from } },
+                    { dueDate: { gte: to } }
+                ]
+            }
           ],
         }
       : {}),
@@ -83,14 +107,31 @@ export async function GET(req: Request) {
     take,
     skip: cursor ? 1 : 0,
     ...(cursor ? { cursor: { id: cursor } } : {}),
-    orderBy: { createdAt: "desc" },
+    // Si se filtra por fechas, ordenamos por inicio para timeline, si no, por creación
+    orderBy: (from || to) ? { startDate: "asc" } : { createdAt: "desc" },
+    include: {
+      _count: {
+        select: { comments: true },
+      },
+      // Incluimos owner para saber de quién es la tarea en vistas de equipo
+      owner: {
+        select: { id: true, name: true, image: true }
+      }
+    },
   });
 
-  const nextCursor = items.length === take ? items[items.length - 1].id : null;
+  const nextCursor =
+    items.length === take ? items[items.length - 1].id : null;
 
-  return NextResponse.json({ items, nextCursor });
+  const cleanItems = items.map((t) => ({
+    ...t,
+    commentCount: t._count.comments,
+  }));
+
+  return NextResponse.json({ items: cleanItems, nextCursor });
 }
 
+// --- POST (Preservado intacto) ---
 export async function POST(req: Request) {
   const { user, companyId } = await requireCompanyScope();
   const body = await req.json();
@@ -106,7 +147,7 @@ export async function POST(req: Request) {
     startDate,
     dueDate,
     estimateSp,
-    estimateHours, // <- puede venir "", string, number, null
+    estimateHours,
     progressPct,
     tags,
   } = body ?? {};
@@ -123,17 +164,18 @@ export async function POST(req: Request) {
       hoursPerStoryPoint: true,
     },
   });
+
   if (!dbUser) {
     return new NextResponse("Usuario no encontrado", { status: 404 });
   }
 
   const hPerSp =
     dbUser.hoursPerStoryPoint ??
-    defaultHoursPerSPBySeniority(dbUser.seniority ?? undefined); // p.ej. JR=6, SSR=5, SR=4
+    defaultHoursPerSPBySeniority(dbUser.seniority ?? undefined);
 
   // 3) Normalizamos números/fechas/arrays
   const estSp = toIntOrNull(estimateSp) ?? 0;
-  let estHours = toIntOrNull(estimateHours); // <- "" => null
+  let estHours = toIntOrNull(estimateHours);
 
   // si no vino un number válido, derivamos de SP
   if (estHours === null) {
@@ -141,10 +183,8 @@ export async function POST(req: Request) {
   }
 
   const prog = toIntOrNull(progressPct) ?? 0;
-
   const start = toDateOrNull(startDate);
   const due = toDateOrNull(dueDate);
-
   const normalizedTags = toArrayOfStrings(tags);
 
   // 4) (Opcional) Validar enums simples para evitar 500 por Prisma
