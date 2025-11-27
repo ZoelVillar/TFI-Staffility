@@ -1,0 +1,359 @@
+//// ------------------------------------------------------
+//// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+//// ------------------------------------------------------
+
+Table accounts {
+  id String [pk]
+  userId String [not null]
+  type String [not null]
+  provider String [not null]
+  providerAccountId String [not null]
+  refresh_token String
+  access_token String
+  expires_at Int
+  token_type String
+  scope String
+  id_token String
+  session_state String
+  user users [not null]
+
+  indexes {
+    (provider, providerAccountId) [unique]
+  }
+}
+
+Table sessions {
+  id String [pk]
+  sessionToken String [unique, not null]
+  userId String [not null]
+  expires DateTime [not null]
+  user users [not null]
+}
+
+Table verificationtokens {
+  identifier String [not null]
+  token String [unique, not null]
+  expires DateTime [not null]
+
+  indexes {
+    (identifier, token) [unique]
+  }
+}
+
+Table users {
+  id String [pk]
+  name String
+  email String [unique, not null]
+  image String
+  password String [not null]
+  companyId String [not null]
+  company companies [not null]
+  roleId String [not null]
+  role roles [not null]
+  accounts accounts [not null]
+  sessions sessions [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  position String
+  department String
+  phone String
+  workMode WorkMode
+  locationCity String
+  locationCountry String
+  managerId String
+  manager users
+  reports users [not null]
+  startDate DateTime
+  endDate DateTime
+  status EmploymentStatus [not null, default: 'ACTIVE']
+  employmentType EmploymentType
+  salary Decimal
+  tags String[] [not null]
+  notes String
+  documentId String
+  birthday DateTime
+  seniority Seniority
+  teamMemberships team_memberships [not null]
+  leadingTeams teams [not null]
+  Campaign campaigns [not null]
+  SurveyResponse survey_responses [not null]
+  capacityHoursPerWeek Int
+  capacitySpPerWeek Int
+  hoursPerStoryPoint Int
+  tasksOwned tasks [not null]
+  workloadSnapshots workload_snapshots [not null]
+  TaskComment task_comments [not null]
+
+  indexes {
+    (companyId, documentId) [unique]
+  }
+}
+
+Table teams {
+  id String [pk]
+  companyId String [not null]
+  company companies [not null]
+  name String [not null]
+  description String
+  leadId String
+  lead users
+  memberships team_memberships [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  CampaignTargetTeam campaign_target_teams [not null]
+  Task tasks [not null]
+
+  indexes {
+    (companyId, name) [unique]
+  }
+}
+
+Table team_memberships {
+  id String [pk]
+  teamId String [not null]
+  userId String [not null]
+  roleInTeam TeamRole [not null, default: 'MEMBER']
+  team teams [not null]
+  user users [not null]
+  createdAt DateTime [default: `now()`, not null]
+
+  indexes {
+    (teamId, userId) [unique]
+  }
+}
+
+Table companies {
+  id String [pk]
+  companyName String [unique, not null]
+  numEmployees Int [not null]
+  contactEmail String [unique, not null]
+  contactName String [not null]
+  phone String
+  users users [not null]
+  teams teams [not null]
+  active Boolean [not null, default: false]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+  Campaign campaigns [not null]
+  Task tasks [not null]
+}
+
+Table roles {
+  id String [pk]
+  name String [unique, not null]
+  permissions String[] [not null]
+  description String
+  users users [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table campaigns {
+  id String [pk]
+  companyId String [not null]
+  company companies [not null]
+  name String [not null]
+  scope CampaignScope [not null]
+  startDate DateTime [not null]
+  endDate DateTime [not null]
+  status CampaignStatus [not null, default: 'ACTIVE']
+  createdById String [not null]
+  createdBy users [not null]
+  targets campaign_target_teams [not null]
+  responses survey_responses [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table campaign_target_teams {
+  id String [pk]
+  campaignId String [not null]
+  teamId String [not null]
+  campaign campaigns [not null]
+  team teams [not null]
+  createdAt DateTime [default: `now()`, not null]
+
+  indexes {
+    (campaignId, teamId) [unique]
+  }
+}
+
+Table survey_responses {
+  id String [pk]
+  campaignId String [not null]
+  userId String [not null]
+  campaign campaigns [not null]
+  user users [not null]
+  scoreTotal Decimal [not null]
+  answers Json
+  submittedAt DateTime [default: `now()`, not null]
+
+  indexes {
+    (campaignId, userId) [unique]
+  }
+}
+
+Table tasks {
+  id String [pk]
+  companyId String [not null]
+  company companies [not null]
+  ownerId String [not null]
+  owner users [not null]
+  teamId String
+  team teams
+  title String [not null]
+  description String
+  type TaskType [not null, default: 'FEATURE']
+  priority TaskPriority [not null, default: 'MEDIUM']
+  status TaskStatus [not null, default: 'PENDING']
+  startDate DateTime
+  dueDate DateTime
+  completedAt DateTime
+  estimateSp Int [not null, default: 0]
+  estimateHours Int
+  progressPct Int [not null, default: 0]
+  tags String[] [not null]
+  comments task_comments [not null]
+  createdAt DateTime [default: `now()`, not null]
+  updatedAt DateTime [not null]
+}
+
+Table task_comments {
+  id String [pk]
+  taskId String [not null]
+  task tasks [not null]
+  authorId String [not null]
+  author users [not null]
+  body String [not null]
+  createdAt DateTime [default: `now()`, not null]
+}
+
+Table workload_snapshots {
+  id String [pk]
+  userId String [not null]
+  user users [not null]
+  weekStart DateTime [not null]
+  plannedSp Int [not null]
+  plannedHours Int [not null]
+  capacitySp Int [not null]
+  capacityHours Int [not null]
+  utilizationPct Int [not null]
+  riskLevel RiskLevel [not null]
+  burnoutScore Decimal
+  createdAt DateTime [default: `now()`, not null]
+
+  indexes {
+    (userId, weekStart) [unique]
+  }
+}
+
+Enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+}
+
+Enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACTOR
+  INTERN
+}
+
+Enum WorkMode {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+Enum Seniority {
+  JR
+  SSR
+  SR
+}
+
+Enum TeamRole {
+  MEMBER
+  LEAD
+}
+
+Enum CampaignScope {
+  ALL
+  TEAMS
+}
+
+Enum CampaignStatus {
+  ACTIVE
+  CLOSED
+}
+
+Enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+  BLOCKED
+  CANCELLED
+}
+
+Enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+Enum TaskType {
+  FEATURE
+  BUG
+  MAINTENANCE
+  SUPPORT
+  CHORE
+}
+
+Enum RiskLevel {
+  OK
+  ATTENTION
+  CRITICAL
+}
+
+Ref: accounts.userId > users.id [delete: Cascade]
+
+Ref: sessions.userId > users.id [delete: Cascade]
+
+Ref: users.companyId > companies.id [delete: Cascade]
+
+Ref: users.roleId > roles.id
+
+Ref: users.managerId - users.id
+
+Ref: teams.companyId > companies.id [delete: Cascade]
+
+Ref: teams.leadId > users.id
+
+Ref: team_memberships.teamId > teams.id [delete: Cascade]
+
+Ref: team_memberships.userId > users.id [delete: Cascade]
+
+Ref: campaigns.companyId > companies.id [delete: Cascade]
+
+Ref: campaigns.createdById > users.id
+
+Ref: campaign_target_teams.campaignId > campaigns.id [delete: Cascade]
+
+Ref: campaign_target_teams.teamId > teams.id [delete: Cascade]
+
+Ref: survey_responses.campaignId > campaigns.id [delete: Cascade]
+
+Ref: survey_responses.userId > users.id [delete: Cascade]
+
+Ref: tasks.companyId > companies.id [delete: Cascade]
+
+Ref: tasks.ownerId > users.id [delete: Cascade]
+
+Ref: tasks.teamId > teams.id [delete: Set Null]
+
+Ref: task_comments.taskId > tasks.id [delete: Cascade]
+
+Ref: task_comments.authorId > users.id [delete: Cascade]
+
+Ref: workload_snapshots.userId > users.id [delete: Cascade]
